@@ -29,19 +29,23 @@ class StockFilter:
         value = condition.value
 
         if field not in df.columns:
-            return df
+            raise ValueError(f"Invalid field: {field}. Field does not exist in stock data.")
+
+        # Filter out NaN values before comparison
+        valid_mask = pd.notna(df[field])
+        df_valid = df[valid_mask]
 
         if operator == ConditionOperator.GT:
-            return df[df[field] > value]
+            return df_valid[df_valid[field] > value]
         elif operator == ConditionOperator.LT:
-            return df[df[field] < value]
+            return df_valid[df_valid[field] < value]
         elif operator == ConditionOperator.GTE:
-            return df[df[field] >= value]
+            return df_valid[df_valid[field] >= value]
         elif operator == ConditionOperator.LTE:
-            return df[df[field] <= value]
+            return df_valid[df_valid[field] <= value]
         elif operator == ConditionOperator.EQ:
-            return df[df[field] == value]
+            return df_valid[df_valid[field] == value]
         elif operator == ConditionOperator.BETWEEN:
-            return df[(df[field] >= value[0]) & (df[field] <= value[1])]
+            return df_valid[(df_valid[field] >= value[0]) & (df_valid[field] <= value[1])]
 
-        return df
+        return df_valid
