@@ -10,7 +10,7 @@ python-dotenv==1.0.0
 celery==5.3.6
 pandas==2.2.0
 numpy==1.26.3
-akshare==1.13.0
-pytest==8.0.0
+akshare==1.18.24
+pytest==7.4.4
 pytest-asyncio==0.23.4
 httpx==0.26.0
