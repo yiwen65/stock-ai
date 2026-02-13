@@ -44,11 +44,12 @@ class StrategyConditions(BaseModel):
     logic: Literal["AND", "OR"] = "AND"
 
 class StrategyExecuteRequest(BaseModel):
-    strategy_type: Literal["custom", "graham", "buffett", "peg"]
+    strategy_type: Literal["custom", "graham", "buffett", "peg", "lynch"]
     conditions: Optional[StrategyConditions] = None
     limit: int = Field(default=50, ge=1, le=500)
     sort_by: Optional[str] = "market_cap"
     sort_order: Literal["asc", "desc"] = "desc"
+    force_refresh: bool = Field(default=False, description="Force refresh cache")
 
     @field_validator('conditions')
     @classmethod

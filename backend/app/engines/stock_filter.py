@@ -3,15 +3,25 @@ import pandas as pd
 from typing import List, Dict
 from app.schemas.strategy import FilterCondition, ConditionOperator
 from app.services.data_service import DataService
+from app.engines.risk_filter import RiskFilter
 
 class StockFilter:
     def __init__(self):
         self.data_service = DataService()
+        self.risk_filter = RiskFilter()
 
-    async def apply_filter(self, conditions: List[FilterCondition]) -> List[Dict]:
+    async def apply_filter(
+        self,
+        conditions: List[FilterCondition],
+        apply_risk_filters: bool = True
+    ) -> List[Dict]:
         """Apply filter conditions to stock universe"""
         # Get all stocks
         stocks = await self.data_service.fetch_stock_list()
+
+        # Apply risk filters first
+        if apply_risk_filters:
+            stocks = await self.risk_filter.apply_all_filters(stocks)
 
         # Convert to DataFrame for filtering
         df = pd.DataFrame(stocks)
