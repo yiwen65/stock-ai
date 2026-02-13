@@ -1,0 +1,126 @@
+.tableContainer {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.table {
+  font-family: var(--font-body);
+}
+
+.table :global(.ant-table) {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.table :global(.ant-table-thead > tr > th) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text-secondary);
+  border-bottom: 2px solid var(--color-border);
+  font-weight: 700;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1rem;
+}
+
+.table :global(.ant-table-tbody > tr) {
+  transition: all var(--transition-fast);
+}
+
+.table :global(.ant-table-tbody > tr:hover) {
+  background: var(--color-surface-elevated);
+}
+
+.table :global(.ant-table-tbody > tr > td) {
+  border-bottom: 1px solid var(--color-border);
+  padding: 1rem;
+  color: var(--color-text);
+}
+
+.stockCode {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.stockName {
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  transition: color var(--transition-fast);
+  text-align: left;
+}
+
+.stockName:hover {
+  color: var(--color-primary);
+}
+
+.price {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.change {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.changeUp {
+  background: rgba(0, 217, 192, 0.15);
+  color: var(--color-success);
+}
+
+.changeDown {
+  background: rgba(255, 71, 87, 0.15);
+  color: var(--color-danger);
+}
+
+.metric {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.marketCap {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.pagination {
+  padding: 1rem;
+}
+
+.pagination :global(.ant-pagination-item) {
+  background: var(--color-surface-elevated);
+  border-color: var(--color-border);
+}
+
+.pagination :global(.ant-pagination-item a) {
+  color: var(--color-text);
+}
+
+.pagination :global(.ant-pagination-item-active) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.pagination :global(.ant-pagination-item-active a) {
+  color: white;
+}

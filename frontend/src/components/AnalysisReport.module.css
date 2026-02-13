@@ -1,0 +1,161 @@
+.container {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.overallCard {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.scoreSection,
+.recommendationSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cardTitle {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scoreDisplay {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.scoreValue {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.scoreNumber {
+  font-size: 2.5rem;
+  font-weight: 900;
+  font-family: var(--font-display);
+  color: var(--color-text);
+}
+
+.scoreMax {
+  font-size: 1rem;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+}
+
+.recommendation {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 2px solid;
+}
+
+.recBuy {
+  background: rgba(0, 217, 192, 0.1);
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.recSell {
+  background: rgba(255, 71, 87, 0.1);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.recHold {
+  background: rgba(160, 160, 160, 0.1);
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-secondary);
+}
+
+.recommendationText {
+  font-size: 1.5rem;
+  font-weight: 900;
+  font-family: var(--font-display);
+}
+
+.summaryCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.summaryText {
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--color-text);
+  margin-top: 1rem;
+}
+
+.analysisCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.scoreTag {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  padding: 0.5rem 1rem;
+  background: var(--color-surface-elevated);
+  border-radius: 6px;
+}
+
+.scoreTag strong {
+  color: var(--color-primary);
+  font-size: 1.125rem;
+}
+
+.trendBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 107, 74, 0.1);
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 1rem;
+}
+
+.trendValue {
+  font-weight: 700;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.analysisText {
+  font-size: 1rem;
+  line-height: 1.8;
+  color: var(--color-text);
+}
+
+@media (max-width: 768px) {
+  .overallCard {
+    grid-template-columns: 1fr;
+  }
+}
