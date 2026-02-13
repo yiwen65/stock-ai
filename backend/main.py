@@ -1,5 +1,6 @@
 # backend/main.py
 import time
+import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,6 +8,9 @@ from app.core.config import settings
 from app.api.v1 import stock, strategy, analysis, auth
 from app.core.rate_limit import rate_limiter
 from app.core.metrics import MetricsMiddleware, metrics_endpoint
+from app.core.logging import setup_logging
+
+logger = setup_logging()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -26,12 +30,36 @@ app.add_middleware(
 app.add_middleware(MetricsMiddleware)
 
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    """Add X-Process-Time header to track response time"""
+async def log_requests(request: Request, call_next):
+    """Log all requests with structured logging"""
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+
+    logger.info(
+        "Request started",
+        extra={
+            'request_id': request_id,
+            'method': request.method,
+            'path': request.url.path,
+            'client_ip': request.client.host
+        }
+    )
+
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
+
+    logger.info(
+        "Request completed",
+        extra={
+            'request_id': request_id,
+            'status_code': response.status_code,
+            'process_time': process_time
+        }
+    )
+
     response.headers["X-Process-Time"] = f"{process_time:.3f}"
+    response.headers["X-Request-ID"] = request_id
     return response
 
 @app.middleware("http")
