@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1 import stock, strategy
+from app.api.v1 import stock, strategy, analysis
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -21,6 +21,7 @@ app.add_middleware(
 # Include routers
 app.include_router(stock.router, prefix=f"{settings.API_V1_STR}/stock", tags=["stock"])
 app.include_router(strategy.router, prefix=f"{settings.API_V1_STR}/strategies", tags=["strategies"])
+app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/stocks", tags=["analysis"])
 
 @app.get("/")
 async def root():
