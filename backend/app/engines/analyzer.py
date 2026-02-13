@@ -1,5 +1,6 @@
 # backend/app/engines/analyzer.py
 
+import asyncio
 import json
 import time
 from typing import Optional, Dict, Any
@@ -45,13 +46,16 @@ class StockAnalyzer:
             if cached:
                 return AnalysisReport(**cached)
 
-        # 2. 获取分析所需数据
+        # 2. 获取分析所需数据 (并发获取)
         data = await self._fetch_analysis_data(stock_code)
 
-        # 3. 执行各维度分析
-        fundamental = await self._analyze_fundamental(data)
-        technical = await self._analyze_technical(data)
-        capital_flow = await self._analyze_capital_flow(data)
+        # 3. 执行各维度分析 (并发执行)
+        import asyncio
+        fundamental, technical, capital_flow = await asyncio.gather(
+            self._analyze_fundamental(data),
+            self._analyze_technical(data),
+            self._analyze_capital_flow(data)
+        )
 
         # 4. 计算综合评分
         overall_score = self._calculate_overall_score(

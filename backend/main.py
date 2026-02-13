@@ -1,10 +1,12 @@
 # backend/main.py
+import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.api.v1 import stock, strategy, analysis, auth
 from app.core.rate_limit import rate_limiter
+from app.core.metrics import MetricsMiddleware, metrics_endpoint
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -19,6 +21,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add metrics middleware
+app.add_middleware(MetricsMiddleware)
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Add X-Process-Time header to track response time"""
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = f"{process_time:.3f}"
+    return response
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
@@ -47,3 +61,8 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint"""
+    return metrics_endpoint()
