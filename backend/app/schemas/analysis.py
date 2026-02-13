@@ -41,3 +41,12 @@ class AnalysisReport(BaseModel):
     recommendation: str = Field(..., description="投资建议: buy/hold/watch/sell")
     summary: str = Field(..., description="综合分析总结")
     generated_at: int = Field(..., description="报告生成时间戳")
+
+
+class AIAnalysisReport(BaseModel):
+    """AI Agent 生成的分析报告"""
+    overall_score: float = Field(..., ge=0, le=10, description="综合评分 (0-10)")
+    risk_level: str = Field(..., description="风险等级: 低/中/高")
+    recommendation: str = Field(..., description="投资建议: 买入/持有/观望/卖出")
+    summary: str = Field(..., description="综合分析总结")
+

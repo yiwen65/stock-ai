@@ -2,11 +2,15 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict
 from app.schemas.strategy import StrategyExecuteRequest, StockPickResult
+from app.schemas.strategy_parse import StrategyParseRequest, StrategyParseResponse
 from app.engines.strategies.graham import GrahamStrategy
 from app.engines.strategies.buffett import BuffettStrategy
 from app.engines.strategies.peg import PEGStrategy
 from app.engines.strategies.lynch import LynchStrategy
 from app.engines.stock_filter import StockFilter
+from app.engines.strategy_parser import StrategyParser
+from app.services.llm_service import LLMService
+from app.core.llm_config import LLMSettings
 from app.core.cache import cache_manager
 
 router = APIRouter()
@@ -93,3 +97,17 @@ async def list_strategies():
         {"name": "lynch", "description": "彼得·林奇成长策略"},
         {"name": "custom", "description": "自定义策略"}
     ]
+
+@router.post("/parse", response_model=StrategyParseResponse)
+async def parse_strategy(request: StrategyParseRequest):
+    """解析自然语言策略描述"""
+    try:
+        llm_settings = LLMSettings()
+        llm_service = LLMService(llm_settings)
+        parser = StrategyParser(llm_service)
+        result = await parser.parse(request.description)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Strategy parsing failed: {str(e)}")
