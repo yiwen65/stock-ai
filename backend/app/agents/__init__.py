@@ -5,6 +5,8 @@ from app.agents.orchestrator import OrchestratorAgent
 from app.agents.data_agent import DataAgent
 from app.agents.fundamental_agent import FundamentalAgent
 from app.agents.technical_agent import TechnicalAgent
+from app.agents.capital_flow_agent import CapitalFlowAgent
+from app.agents.news_agent import NewsAgent
 from app.agents.evaluator_agent import EvaluatorAgent
 
 __all__ = [
@@ -13,5 +15,7 @@ __all__ = [
     'DataAgent',
     'FundamentalAgent',
     'TechnicalAgent',
+    'CapitalFlowAgent',
+    'NewsAgent',
     'EvaluatorAgent'
 ]

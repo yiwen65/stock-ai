@@ -49,7 +49,11 @@ celery_app.conf.beat_schedule = {
     'warmup-market-overview': {
         'task': 'warmup_market_overview',
         'schedule': crontab(minute='*/5'),  # Every 5 minutes
-    }
+    },
+    'sync-financial-data-nightly': {
+        'task': 'sync_all_financial_data',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 02:00
+    },
 }
 
 # Auto-discover tasks

@@ -36,12 +36,24 @@ class RateLimiter:
 rate_limiter = RateLimiter(requests=100, window=60)
 
 async def rate_limit_dependency(request: Request):
-    """限流依赖"""
-    # 使用 IP 地址作为限流 Key
-    client_ip = request.client.host
-    key = f"rate_limit:{client_ip}"
+    """限流依赖 — 已登录用户按 user_id 限流，否则按 IP"""
+    # 尝试从 Authorization header 提取 user_id
+    user_key = None
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            from app.core.security import decode_access_token
+            payload = decode_access_token(auth[7:])
+            if payload and payload.get("sub"):
+                user_key = f"rate_limit:user:{payload['sub']}"
+        except Exception:
+            pass
 
-    if not await rate_limiter.check_rate_limit(key):
+    if not user_key:
+        client_ip = request.client.host
+        user_key = f"rate_limit:ip:{client_ip}"
+
+    if not await rate_limiter.check_rate_limit(user_key):
         raise HTTPException(
             status_code=429,
             detail="Too many requests. Please try again later."

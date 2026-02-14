@@ -16,8 +16,11 @@ class StockFilter:
         apply_risk_filters: bool = True
     ) -> List[Dict]:
         """Apply filter conditions to stock universe"""
-        # Get all stocks
-        stocks = await self.data_service.fetch_stock_list()
+        # Get full market snapshot with PE/PB/market_cap/turnover etc.
+        stocks = await self.data_service.fetch_market_snapshot()
+
+        if not stocks:
+            return []
 
         # Apply risk filters first
         if apply_risk_filters:

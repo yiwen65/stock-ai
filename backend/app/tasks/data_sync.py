@@ -171,6 +171,29 @@ async def _sync_financial_data(stock_code: str):
         db.close()
 
 
+@shared_task(name="sync_all_financial_data")
+def sync_all_financial_data():
+    """批量同步所有股票财务数据 (凌晨2:00)"""
+    result = asyncio.run(_sync_all_financial_data())
+    return result
+
+
+async def _sync_all_financial_data():
+    """异步批量同步财务数据"""
+    from app.services.data_service import DataService
+
+    data_service = DataService()
+    stock_codes = await data_service.get_all_stock_codes()
+
+    # Use Celery group for parallel financial sync
+    job = group(
+        sync_financial_data.s(code) for code in stock_codes[:500]
+    )
+    job.apply_async()
+
+    return f"Syncing financial data for {min(len(stock_codes), 500)} stocks"
+
+
 @shared_task(name="sync_all_stocks_data")
 def sync_all_stocks_data():
     """批量同步所有股票数据"""

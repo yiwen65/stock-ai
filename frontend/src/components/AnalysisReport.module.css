@@ -154,6 +154,11 @@
   color: var(--color-text);
 }
 
+.targetRow {
+  background: rgba(255, 107, 74, 0.08) !important;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .overallCard {
     grid-template-columns: 1fr;

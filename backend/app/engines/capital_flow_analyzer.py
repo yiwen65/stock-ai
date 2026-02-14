@@ -24,13 +24,16 @@ class CapitalFlowAnalyzer:
         # 计算主力资金净流入
         main_net_inflow = flow_data['main_net'].sum()
 
+        # 计算多时间维度净流入
+        main_net_inflow_5d = flow_data['main_net'].tail(5).sum()
+        main_net_inflow_10d = flow_data['main_net'].tail(10).sum()
+
         # 计算主力资金流入占比
         total_amount = flow_data['amount'].sum()
         main_inflow_ratio = main_net_inflow / total_amount if total_amount > 0 else 0
 
         # 判断趋势
-        recent_5d = flow_data['main_net'].tail(5).sum()
-        trend, score = self._analyze_trend(recent_5d, main_inflow_ratio)
+        trend, score = self._analyze_trend(main_net_inflow_5d, main_inflow_ratio)
 
         # 生成总结
         summary = self._generate_summary(
@@ -40,6 +43,8 @@ class CapitalFlowAnalyzer:
         return CapitalFlowAnalysis(
             score=score,
             main_net_inflow=main_net_inflow,
+            main_net_inflow_5d=main_net_inflow_5d,
+            main_net_inflow_10d=main_net_inflow_10d,
             main_inflow_ratio=main_inflow_ratio,
             trend=trend,
             summary=summary

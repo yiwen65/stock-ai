@@ -94,6 +94,26 @@
   font-family: var(--font-mono);
 }
 
+.authButton {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0.5rem 0.875rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.authButton:hover {
+  background: var(--color-surface-elevated);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
 .container {
   display: flex;
   flex: 1;
@@ -178,16 +198,95 @@
   }
 }
 
-@media (max-width: 768px) {
-  .sidebar {
-    width: 80px;
-  }
+.footer {
+  text-align: center;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
 
+.footerLink {
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Tablet: collapse sidebar to icons-only */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 64px;
+  }
   .navItem span {
     display: none;
   }
+  .navItem {
+    justify-content: center;
+    padding: 0.875rem;
+  }
+  .main {
+    padding: 1.5rem;
+  }
+}
 
+/* Mobile: bottom nav, stack header */
+@media (max-width: 768px) {
+  .header {
+    padding: 0 1rem;
+  }
+  .headerContent {
+    height: 56px;
+  }
+  .headerCenter {
+    display: none !important;
+  }
+  .statusIndicator {
+    display: none;
+  }
+  .container {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding: 0;
+    order: 1;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    z-index: 90;
+    background: var(--color-surface);
+  }
+  .nav {
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 0.5rem 0;
+    gap: 0;
+  }
+  .navItem {
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.6875rem;
+    border-radius: 0;
+  }
+  .navItem span {
+    display: block;
+  }
+  .navItem::before {
+    display: none;
+  }
   .main {
     padding: 1rem;
+    padding-bottom: 80px;
   }
+  .footer {
+    display: none;
+  }
+}
+
+.footerLink:hover {
+  opacity: 0.8;
 }

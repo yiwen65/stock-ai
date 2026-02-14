@@ -4,4 +4,12 @@
   border-radius: 12px;
   padding: 1.5rem;
   overflow: hidden;
+  position: relative;
+}
+
+.periodSelector {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.5rem;
+  z-index: 10;
 }

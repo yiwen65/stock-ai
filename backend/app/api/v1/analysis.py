@@ -7,13 +7,12 @@ from app.core.cache import get_cache
 from app.engines.analyzer import StockAnalyzer
 from app.schemas.analysis import AnalysisReport, AIAnalysisReport
 from app.agents.orchestrator import OrchestratorAgent
-from app.agents.data_agent import DataAgent
-from app.agents.fundamental_agent import FundamentalAgent
-from app.agents.technical_agent import TechnicalAgent
-from app.agents.evaluator_agent import EvaluatorAgent
 from app.services.llm_service import LLMService
 from app.core.llm_config import LLMSettings
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -102,29 +101,26 @@ async def ai_analyze_stock(stock_code: str):
     """
     使用 AI Agent 生成深度分析报告
 
+    Flow: DataAgent → (FundamentalAgent | TechnicalAgent | CapitalFlowAgent) → EvaluatorAgent
+
     Args:
         stock_code: 股票代码
 
     Returns:
-        AIAnalysisReport: AI 生成的深度分析报告
+        AIAnalysisReport: AI 生成的深度分析报告（含仓位/止损/目标价建议）
     """
     try:
-        llm_settings = LLMSettings()
-        llm_service = LLMService(llm_settings)
-
-        orchestrator = OrchestratorAgent(
-            llm_service=llm_service,
-            data_agent=DataAgent(llm_service),
-            fundamental_agent=FundamentalAgent(llm_service),
-            technical_agent=TechnicalAgent(llm_service),
-            evaluator_agent=EvaluatorAgent(llm_service)
-        )
+        llm_service = LLMService()
+        orchestrator = OrchestratorAgent(llm_service=llm_service)
 
         result = await orchestrator.analyze_stock(stock_code)
+
+        logger.info(f"AI analysis complete for {stock_code}: LLM usage={llm_service.get_usage_stats()}")
         return AIAnalysisReport(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"AI analysis failed for {stock_code}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"AI analysis failed: {str(e)}"

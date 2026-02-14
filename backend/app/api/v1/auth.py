@@ -7,11 +7,12 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.core.security import (
     verify_password, get_password_hash, create_access_token,
+    create_refresh_token, decode_access_token,
     store_session, delete_session
 )
 from app.core.dependencies import get_current_active_user
 from app.models.user import User
-from app.schemas.user import UserRegister, UserLogin, Token, UserResponse
+from app.schemas.user import UserRegister, UserLogin, Token, UserResponse, RefreshRequest
 
 router = APIRouter()
 
@@ -60,10 +61,58 @@ async def login(user: UserLogin, db: Session = Depends(get_db)):
     db_user.last_login_at = datetime.utcnow()
     db.commit()
 
+    # Create refresh token
+    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh_token = create_refresh_token(
+        data={"sub": str(db_user.id), "email": db_user.email},
+        expires_delta=refresh_token_expires
+    )
+
     # 存储会话
     await store_session(db_user.id, access_token, expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+@router.post("/refresh", response_model=Token)
+async def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
+    """使用 Refresh Token 获取新的 Access Token"""
+    payload = decode_access_token(body.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    # Issue new access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_token(
+        data={"sub": str(user.id), "email": user.email},
+        expires_delta=access_token_expires
+    )
+
+    # Issue new refresh token (rotation)
+    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    new_refresh_token = create_refresh_token(
+        data={"sub": str(user.id), "email": user.email},
+        expires_delta=refresh_token_expires
+    )
+
+    await store_session(user.id, new_access_token, expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 @router.post("/logout")
 async def logout(current_user: User = Depends(get_current_active_user)):

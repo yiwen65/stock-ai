@@ -13,3 +13,13 @@ class UserStrategy(Base):
     conditions = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class StrategyExecution(Base):
+    __tablename__ = "strategy_executions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_id = Column(Integer, ForeignKey("user_strategies.id", ondelete='CASCADE'), nullable=False, index=True)
+    executed_at = Column(DateTime(timezone=True), server_default=func.now())
+    result_count = Column(Integer, nullable=False, default=0)
+    result_snapshot = Column(JSON, nullable=True)

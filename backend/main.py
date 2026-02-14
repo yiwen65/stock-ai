@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.v1 import stock, strategy, analysis, auth
+from app.api.v1 import stock, strategy, analysis, auth, watchlist
 from app.core.rate_limit import rate_limiter
 from app.core.metrics import MetricsMiddleware, metrics_endpoint
 from app.core.logging import setup_logging
@@ -15,7 +15,8 @@ logger = setup_logging()
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    redirect_slashes=False
 )
 
 app.add_middleware(
@@ -78,9 +79,30 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # Include routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
-app.include_router(stock.router, prefix=f"{settings.API_V1_STR}/stock", tags=["stock"])
+app.include_router(stock.router, prefix=settings.API_V1_STR, tags=["stock"])
 app.include_router(strategy.router, prefix=f"{settings.API_V1_STR}/strategies", tags=["strategies"])
 app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/stocks", tags=["analysis"])
+app.include_router(watchlist.router, prefix=f"{settings.API_V1_STR}/watchlist", tags=["watchlist"])
+
+@app.on_event("startup")
+async def warm_cache():
+    """Pre-load stock list cache so first request is fast."""
+    import asyncio
+    from app.services.data_service import DataService
+
+    async def _warm():
+        try:
+            ds = DataService()
+            stocks = await ds.fetch_stock_list()
+            logger.info(f"Cache warm-up: {len(stocks)} stocks loaded")
+            # Also warm market snapshot (slower, but enables realtime prices in search)
+            snapshot = await ds.fetch_market_snapshot()
+            logger.info(f"Cache warm-up: {len(snapshot)} snapshot quotes loaded")
+        except Exception as e:
+            logger.warning(f"Cache warm-up failed (non-fatal): {e}")
+
+    asyncio.create_task(_warm())
+
 
 @app.get("/")
 async def root():

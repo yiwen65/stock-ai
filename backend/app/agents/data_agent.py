@@ -1,59 +1,51 @@
 """Data Agent - 数据获取 Agent"""
 
-from typing import Dict
+from typing import Dict, Any
 import asyncio
+import logging
 from app.agents.base_agent import BaseAgent
 from app.services.data_service import DataService
 
+logger = logging.getLogger(__name__)
+
 
 class DataAgent(BaseAgent):
-    """数据获取 Agent"""
+    """数据获取 Agent — 并行拉取行情/K线/财务/资金数据"""
 
-    def __init__(self, llm_service, name: str = "data-agent"):
+    def __init__(self, llm_service=None, name: str = "data-agent"):
         super().__init__(llm_service, name)
         self.data_service = DataService()
 
-    async def execute(self, context: Dict) -> Dict:
-        """执行数据获取任务"""
+    async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """并行获取股票所有维度的数据"""
         stock_code = context['stock_code']
 
-        # 并行获取数据
-        realtime_task = self._get_realtime_data(stock_code)
-        kline_task = self._get_kline_data(stock_code)
-        financial_task = self._get_financial_data(stock_code)
+        realtime_task = self.data_service.fetch_realtime_quote(stock_code)
+        kline_task = self.data_service.fetch_kline_data(stock_code, period='1d', days=500)
+        financial_task = self.data_service.fetch_financial_data(stock_code)
+        capital_task = self.data_service.fetch_capital_flow(stock_code)
+        news_task = self.data_service.fetch_stock_news(stock_code, limit=10)
 
-        realtime, kline, financial = await asyncio.gather(
-            realtime_task, kline_task, financial_task
+        realtime, kline, financial, capital_flow, news = await asyncio.gather(
+            realtime_task, kline_task, financial_task, capital_task, news_task,
+            return_exceptions=True,
         )
+
+        def _safe(val):
+            if isinstance(val, Exception):
+                logger.warning(f"DataAgent fetch error for {stock_code}: {val}")
+                return None
+            return val
 
         return {
             'stock_code': stock_code,
-            'realtime': realtime,
-            'kline': kline,
-            'financial': financial
+            'stock_name': (_safe(realtime) or {}).get('stock_name', stock_code),
+            'realtime': _safe(realtime) or {},
+            'kline': _safe(kline) or [],
+            'financial': _safe(financial) or [],
+            'capital_flow': _safe(capital_flow) or {},
+            'news': _safe(news) or [],
         }
 
-    async def _get_realtime_data(self, stock_code: str) -> Dict:
-        """获取实时行情数据"""
-        try:
-            return await self.data_service.get_realtime_quote(stock_code)
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def _get_kline_data(self, stock_code: str) -> Dict:
-        """获取K线数据"""
-        try:
-            return await self.data_service.get_kline(stock_code, period="daily", adjust="qfq")
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def _get_financial_data(self, stock_code: str) -> Dict:
-        """获取财务数据"""
-        try:
-            return await self.data_service.get_financial_data(stock_code)
-        except Exception as e:
-            return {"error": str(e)}
-
     def _get_system_prompt(self) -> str:
-        """获取系统提示词"""
-        return "数据获取 Agent"
+        return "你是数据获取代理，负责收集股票的行情、K线、财务和资金流向数据。"

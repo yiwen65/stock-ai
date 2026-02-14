@@ -1,0 +1,21 @@
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.list {
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.list li {
+  margin-bottom: 0.5rem;
+  line-height: 1.8;
+}
+
+.riskCard {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  margin: 1rem 0;
+}
