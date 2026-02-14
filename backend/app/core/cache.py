@@ -81,3 +81,7 @@ class CacheManager:
 
 # Global cache manager instance
 cache_manager = CacheManager()
+
+def get_redis():
+    """Get Redis client for async operations"""
+    return redis_client

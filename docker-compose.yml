@@ -33,6 +33,51 @@ services:
     volumes:
       - influxdb_data:/var/lib/influxdb2
 
+  celery_worker:
+    build: ./backend
+    command: celery -A app.core.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - postgres
+      - influxdb
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://stock_user:stock_pass@postgres:5432/stock_ai
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-token
+      - INFLUXDB_ORG=stock-ai
+      - INFLUXDB_BUCKET=stock_data
+
+  celery_beat:
+    build: ./backend
+    command: celery -A app.core.celery_app beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - postgres
+      - influxdb
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://stock_user:stock_pass@postgres:5432/stock_ai
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-token
+      - INFLUXDB_ORG=stock-ai
+      - INFLUXDB_BUCKET=stock_data
+
+  flower:
+    build: ./backend
+    command: celery -A app.core.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - celery_worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
 volumes:
   postgres_data:
   redis_data:
