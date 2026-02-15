@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 _memory_cache: Dict[str, dict] = {}   # key → {"data": ..., "ts": float}
 
 SNAPSHOT_CACHE_KEY = "market:snapshot"
-SNAPSHOT_TTL = 30           # Redis TTL seconds (real-time, refresh often)
-SNAPSHOT_MEMORY_TTL = 120   # L2 memory fallback TTL
+SNAPSHOT_TTL = 300          # Redis TTL seconds (5 min to avoid slow reloads)
+SNAPSHOT_MEMORY_TTL = 300   # L2 memory fallback TTL
 SECTOR_TTL = 300            # sectors change slower
 STOCK_LIST_TTL = 3600       # stock list changes daily at most
 KLINE_TTL = 600
@@ -211,7 +211,7 @@ class DataService:
             return []
 
     async def fetch_stock_list(self) -> List[Dict]:
-        """Fetch A-share stock list from AKShare (cached 1h)"""
+        """Fetch A-share stock list from AKShare (cached 1h + file persistence)"""
         cache_key = "data:stock_list"
         cached = self._cache_get(cache_key)
         if cached:
@@ -221,11 +221,33 @@ class DataService:
         if mem:
             return mem
 
+        # Try to load from local file cache first (fast startup)
+        import os
+        cache_file = "stock_list_cache.json"
+        if os.path.exists(cache_file):
+            try:
+                # Check file age (24h)
+                mtime = os.path.getmtime(cache_file)
+                if time.time() - mtime < 86400:
+                    async with asyncio.Lock():  # simple sync read is fine here
+                        with open(cache_file, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            if data:
+                                self._cache_set(cache_key, data, STOCK_LIST_TTL)
+                                logger.info(f"Loaded {len(data)} stocks from local file cache")
+                                return data
+            except Exception as e:
+                logger.warning(f"Failed to load local stock cache: {e}")
+
         # Primary: SH + SZ exchange APIs (fast ~10s, avoids BSE proxy hang)
         try:
-            df_sh, df_sz = await asyncio.gather(
-                asyncio.to_thread(ak.stock_info_sh_name_code),
-                asyncio.to_thread(ak.stock_info_sz_name_code),
+            # Add timeout to avoid hanging
+            df_sh, df_sz = await asyncio.wait_for(
+                asyncio.gather(
+                    asyncio.to_thread(ak.stock_info_sh_name_code),
+                    asyncio.to_thread(ak.stock_info_sz_name_code),
+                ),
+                timeout=5.0
             )
             stocks = []
             for _, row in df_sh.iterrows():
@@ -234,10 +256,17 @@ class DataService:
                 stocks.append({"stock_code": _normalize_stock_code(row["证券代码"]), "stock_name": str(row["证券简称"])})
             if stocks:
                 self._cache_set(cache_key, stocks, STOCK_LIST_TTL)
+                # Save to file
+                try:
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(stocks, f, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to save local stock cache: {e}")
+                
                 logger.info(f"Stock list fetched via SH+SZ: {len(stocks)} stocks")
                 return stocks
         except Exception as e:
-            logger.warning(f"SH+SZ stock list failed: {e}, trying fallback via spot_em")
+            logger.warning(f"SH+SZ stock list failed or timed out: {e}, trying fallback via spot_em")
 
         # Fallback: East Money spot API (slower ~120s but comprehensive)
         try:
@@ -248,6 +277,13 @@ class DataService:
             ]
             if stocks:
                 self._cache_set(cache_key, stocks, STOCK_LIST_TTL)
+                # Save to file
+                try:
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(stocks, f, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to save local stock cache: {e}")
+                
                 logger.info(f"Stock list fallback via spot_em: {len(stocks)} stocks")
                 return stocks
         except Exception as e2:

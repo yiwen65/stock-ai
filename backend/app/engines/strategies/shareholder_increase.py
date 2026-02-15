@@ -7,8 +7,9 @@ Criteria:
 - 低位增持更有价值（股价处于近60日低位区域）
 - 市值 > 20亿, PE > 0, 非ST
 """
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.engines.stock_filter import StockFilter
 
@@ -37,74 +38,62 @@ class ShareholderIncreaseStrategy:
         if not candidates:
             return []
 
-        # 2. For each candidate, check northbound holding as institutional signal
-        results = []
-        for stock in candidates[:200]:
-            try:
-                code = stock['stock_code']
+        stock_list = candidates[:200]
 
-                # Fetch northbound holding data
-                holding = await self.data_service.fetch_northbound_stock_holding(code)
-                if not holding or not holding.get('change_shares'):
-                    continue
+        # 2. Fetch northbound + K-line concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            code = stock['stock_code']
 
-                change_shares = holding.get('change_shares', 0)
-                if change_shares <= 0:
-                    # Skip if no net increase
-                    continue
+            holding = await self.data_service.fetch_northbound_stock_holding(code)
+            if not holding or not holding.get('change_shares'):
+                return None
 
-                hold_pct = holding.get('hold_pct', 0)
+            change_shares = holding.get('change_shares', 0)
+            if change_shares <= 0:
+                return None
 
-                # Fetch K-line to check if price is at low position
-                kline = await self.data_service.fetch_kline_data(code, period='1d', days=60)
-                if not kline or len(kline) < 20:
-                    continue
+            hold_pct = holding.get('hold_pct', 0)
 
-                closes = [float(k['close']) for k in kline if k.get('close')]
-                if not closes:
-                    continue
+            kline = await self.data_service.fetch_kline_data(code, period='1d', days=60)
+            if not kline or len(kline) < 20:
+                return None
 
-                current_price = closes[0]
-                high_60d = max(closes)
-                low_60d = min(closes)
-                price_range = high_60d - low_60d
+            closes = [float(k['close']) for k in kline if k.get('close')]
+            if not closes:
+                return None
 
-                # Position in 60-day range (0 = at low, 1 = at high)
-                if price_range > 0:
-                    position = (current_price - low_60d) / price_range
-                else:
-                    position = 0.5
+            current_price = closes[0]
+            high_60d = max(closes)
+            low_60d = min(closes)
+            price_range = high_60d - low_60d
 
-                # Prefer low-position increases (position < 0.4)
-                low_position = position < 0.4
+            if price_range > 0:
+                position = (current_price - low_60d) / price_range
+            else:
+                position = 0.5
 
-                # Score
-                score = 50.0
-                # Northbound holding percentage bonus
-                score += min(hold_pct * 2, 15)
-                # Increase magnitude (change_shares normalized)
-                score += min(change_shares / 1_000_000, 10)
-                # Low position bonus
-                if low_position:
-                    score += 15
-                elif position < 0.6:
-                    score += 5
-                # PE attractiveness
-                pe = stock.get('pe', 30)
-                if pe and 0 < pe < 15:
-                    score += 10
-                elif pe and pe < 25:
-                    score += 5
+            low_position = position < 0.4
 
-                stock['score'] = round(min(score, 100), 1)
-                stock['northbound_hold_pct'] = round(hold_pct, 2)
-                stock['northbound_change_shares'] = change_shares
-                stock['price_position_60d'] = round(position, 2)
-                stock['low_position_increase'] = low_position
-                results.append(stock)
+            score = 50.0
+            score += min(hold_pct * 2, 15)
+            score += min(change_shares / 1_000_000, 10)
+            if low_position:
+                score += 15
+            elif position < 0.6:
+                score += 5
+            pe = stock.get('pe', 30)
+            if pe and 0 < pe < 15:
+                score += 10
+            elif pe and pe < 25:
+                score += 5
 
-            except Exception:
-                continue
+            stock['score'] = round(min(score, 100), 1)
+            stock['northbound_hold_pct'] = round(hold_pct, 2)
+            stock['northbound_change_shares'] = change_shares
+            stock['price_position_60d'] = round(position, 2)
+            stock['low_position_increase'] = low_position
+            return stock
 
+        results = await batch_fetch(stock_list, _process, timeout=12.0)
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:50]

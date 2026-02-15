@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/buffett.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.engines.stock_filter import StockFilter
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.schemas.strategy import FilterCondition, ConditionOperator
 
@@ -32,47 +33,41 @@ class BuffettStrategy:
         ]
         candidates = await self.filter_engine.apply_filter(conditions)
 
-        # Step 2: Financial quality validation
-        results = []
-        for stock in candidates[:300]:
-            try:
-                financials = await self.data_service.fetch_financial_data(
-                    stock['stock_code'], years=3
-                )
-                if not financials or len(financials) < 4:
-                    continue
+        # Step 2: Financial quality validation concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            financials = await self.data_service.fetch_financial_data(
+                stock['stock_code'], years=3
+            )
+            if not financials or len(financials) < 4:
+                return None
 
-                latest = financials[0]
-                roe = latest.get('roe', 0)
-                debt_ratio = latest.get('debt_ratio', 100)
+            latest = financials[0]
+            roe = latest.get('roe', 0)
+            debt_ratio = latest.get('debt_ratio', 100)
 
-                if roe < roe_min:
-                    continue
-                if debt_ratio > debt_max:
-                    continue
+            if roe < roe_min:
+                return None
+            if debt_ratio > debt_max:
+                return None
 
-                # Check ROE consistency across recent quarters
-                roe_values = [f.get('roe', 0) for f in financials[:8] if f.get('roe', 0) > 0]
-                if len(roe_values) < 4:
-                    continue
-                avg_roe = sum(roe_values) / len(roe_values)
-                if avg_roe < roe_min * 0.8:
-                    continue
+            roe_values = [f.get('roe', 0) for f in financials[:8] if f.get('roe', 0) > 0]
+            if len(roe_values) < 4:
+                return None
+            avg_roe = sum(roe_values) / len(roe_values)
+            if avg_roe < roe_min * 0.8:
+                return None
 
-                # Score
-                score = 40.0
-                score += min(roe / 30 * 25, 25)  # ROE contribution
-                score += max(0, (50 - debt_ratio) / 50 * 15)  # Lower debt = better
-                score += min(len(roe_values) * 2, 10)  # Consistency bonus
-                score += min(avg_roe / roe_min * 10, 10)  # Avg ROE bonus
+            score = 40.0
+            score += min(roe / 30 * 25, 25)
+            score += max(0, (50 - debt_ratio) / 50 * 15)
+            score += min(len(roe_values) * 2, 10)
+            score += min(avg_roe / roe_min * 10, 10)
 
-                stock['score'] = round(min(score, 100), 1)
-                stock['roe'] = roe
-                stock['debt_ratio'] = debt_ratio
-                results.append(stock)
+            stock['score'] = round(min(score, 100), 1)
+            stock['roe'] = roe
+            stock['debt_ratio'] = debt_ratio
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates[:200], _process)
         results.sort(key=lambda x: x.get("score", 0), reverse=True)
         return results[:50]

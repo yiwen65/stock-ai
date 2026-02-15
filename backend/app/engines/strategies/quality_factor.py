@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/quality_factor.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.engines.stock_filter import StockFilter
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.schemas.strategy import FilterCondition, ConditionOperator
 
@@ -34,53 +35,47 @@ class QualityFactorStrategy:
         ]
         candidates = await self.filter_engine.apply_filter(conditions)
 
-        # Validate financial quality
-        results = []
-        for stock in candidates[:200]:
-            try:
-                financials = await self.data_service.fetch_financial_data(
-                    stock["stock_code"], years=3
-                )
-                if not financials or len(financials) < 4:
-                    continue
+        # Validate financial quality concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            financials = await self.data_service.fetch_financial_data(
+                stock["stock_code"], years=3
+            )
+            if not financials or len(financials) < 4:
+                return None
 
-                latest = financials[0]
-                roe = latest.get("roe", 0)
-                debt_ratio = latest.get("debt_ratio", 100)
-                gross_margin = latest.get("gross_margin", 0)
-                net_margin = latest.get("net_margin", 0)
-                revenue_growth = latest.get("revenue_growth", 0)
+            latest = financials[0]
+            roe = latest.get("roe", 0)
+            debt_ratio = latest.get("debt_ratio", 100)
+            gross_margin = latest.get("gross_margin", 0)
+            net_margin = latest.get("net_margin", 0)
+            revenue_growth = latest.get("revenue_growth", 0)
 
-                if roe < roe_min:
-                    continue
-                if debt_ratio > 50:
-                    continue
+            if roe < roe_min:
+                return None
+            if debt_ratio > 50:
+                return None
 
-                # ROE stability: check std across quarters
-                roe_values = [f.get("roe", 0) for f in financials[:8]]
-                roe_values = [r for r in roe_values if r > 0]
-                if len(roe_values) < 3:
-                    continue
-                roe_avg = sum(roe_values) / len(roe_values)
-                roe_std = (sum((r - roe_avg) ** 2 for r in roe_values) / len(roe_values)) ** 0.5
+            roe_values = [f.get("roe", 0) for f in financials[:8]]
+            roe_values = [r for r in roe_values if r > 0]
+            if len(roe_values) < 3:
+                return None
+            roe_avg = sum(roe_values) / len(roe_values)
+            roe_std = (sum((r - roe_avg) ** 2 for r in roe_values) / len(roe_values)) ** 0.5
 
-                # Score: high ROE + low debt + high margin + stable ROE + growth
-                score = 0
-                score += min(roe / 25 * 30, 30)  # ROE contribution
-                score += max(0, (50 - debt_ratio) / 50 * 20)  # Low debt
-                score += min(gross_margin / 50 * 15, 15)  # Gross margin
-                score += min(net_margin / 20 * 10, 10)  # Net margin
-                score += max(0, min(revenue_growth / 30 * 15, 15))  # Growth
-                score -= min(roe_std * 2, 10)  # Penalize ROE instability
-                score = max(0, min(100, score))
+            score = 0
+            score += min(roe / 25 * 30, 30)
+            score += max(0, (50 - debt_ratio) / 50 * 20)
+            score += min(gross_margin / 50 * 15, 15)
+            score += min(net_margin / 20 * 10, 10)
+            score += max(0, min(revenue_growth / 30 * 15, 15))
+            score -= min(roe_std * 2, 10)
+            score = max(0, min(100, score))
 
-                stock["score"] = round(score, 1)
-                stock["roe"] = roe
-                stock["risk_level"] = "low" if debt_ratio < 30 and roe > 15 else "medium"
-                results.append(stock)
+            stock["score"] = round(score, 1)
+            stock["roe"] = roe
+            stock["risk_level"] = "low" if debt_ratio < 30 and roe > 15 else "medium"
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates[:200], _process)
         results.sort(key=lambda x: x.get("score", 0), reverse=True)
         return results[:50]

@@ -65,7 +65,7 @@ class StrategyExecuteRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=500)
     sort_by: Optional[str] = "market_cap"
     sort_order: Literal["asc", "desc"] = "desc"
-    force_refresh: bool = Field(default=False, description="Force refresh cache")
+    force_refresh: bool = Field(default=True, description="Force refresh cache")
     include_industries: Optional[List[str]] = Field(default=None, description="Only include stocks in these industries (申万行业)")
     exclude_industries: Optional[List[str]] = Field(default=None, description="Exclude stocks in these industries")
 

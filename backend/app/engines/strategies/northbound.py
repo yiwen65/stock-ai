@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/northbound.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 
 
@@ -24,7 +25,6 @@ class NorthboundStrategy:
         """Execute northbound capital strategy"""
         pe_max = params.get("pe_max", 30.0) if params else 30.0
         market_cap_min = params.get("market_cap_min", 10_000_000_000) if params else 10_000_000_000
-        min_inflow_days = params.get("min_inflow_days", 5) if params else 5
 
         snapshot = await self.data_service.fetch_market_snapshot()
         if not snapshot:
@@ -43,42 +43,35 @@ class NorthboundStrategy:
         # Sort by market cap descending - focus on large caps
         df = df.sort_values('market_cap', ascending=False)
 
-        results = []
         candidates = df.head(200).to_dict('records')
 
-        for stock in candidates:
-            try:
-                flow = await self.data_service.fetch_capital_flow(stock['stock_code'])
-                if not flow:
-                    continue
+        # Fetch capital flow concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            flow = await self.data_service.fetch_capital_flow(stock['stock_code'])
+            if not flow:
+                return None
 
-                # Check sustained main capital inflow as proxy for northbound
-                main_5d = flow.get('main_net_inflow_5d', 0)
-                main_10d = flow.get('main_net_inflow_10d', 0)
-                main_today = flow.get('main_net_inflow', 0)
+            main_5d = flow.get('main_net_inflow_5d', 0)
+            main_10d = flow.get('main_net_inflow_10d', 0)
+            main_today = flow.get('main_net_inflow', 0)
 
-                # Require positive inflow across periods
-                if main_today <= 0 or main_5d <= 0:
-                    continue
+            if main_today <= 0 or main_5d <= 0:
+                return None
 
-                # Score based on inflow consistency and magnitude
-                score = 50.0
-                if main_5d > 0:
-                    score += 15
-                if main_10d > 0:
-                    score += 10
-                # Magnitude bonus (normalized by market cap)
-                if stock['market_cap'] > 0:
-                    inflow_pct = main_5d / stock['market_cap'] * 100
-                    score += min(inflow_pct * 50, 25)
+            score = 50.0
+            if main_5d > 0:
+                score += 15
+            if main_10d > 0:
+                score += 10
+            if stock['market_cap'] > 0:
+                inflow_pct = main_5d / stock['market_cap'] * 100
+                score += min(inflow_pct * 50, 25)
 
-                stock['score'] = round(min(score, 100), 1)
-                stock['main_net_inflow_5d'] = main_5d
-                stock['main_net_inflow_10d'] = main_10d
-                results.append(stock)
+            stock['score'] = round(min(score, 100), 1)
+            stock['main_net_inflow_5d'] = main_5d
+            stock['main_net_inflow_10d'] = main_10d
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates, _process)
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:50]
