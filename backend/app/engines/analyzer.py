@@ -19,6 +19,8 @@ from app.schemas.analysis import (
     DuPontAnalysis
 )
 from app.services.data_service import DataService
+from app.services.llm_service import LLMService
+from app.core.llm_config import LLMSettings
 from app.engines.industry_comparator import IndustryComparator
 from app.utils.indicators import (
     calculate_ma, calculate_macd, calculate_rsi, calculate_kdj,
@@ -43,6 +45,15 @@ class StockAnalyzer:
         self.cache = cache
         self.data_service = DataService()
         self.industry_comparator = IndustryComparator(self.data_service)
+        # Initialize LLM service for AI-powered analysis
+        try:
+            self._llm_settings = LLMSettings()
+            self._llm = LLMService(self._llm_settings)
+            self._ai_enabled = bool(self._llm.primary_client)
+        except Exception:
+            self._llm = None
+            self._ai_enabled = False
+            logger.info('LLM not configured, using template summaries')
 
     async def analyze(
         self,
@@ -110,7 +121,30 @@ class StockAnalyzer:
         else:
             confidence = "low"
 
-        # 5. 生成报告
+        # 5. AI 智能分析（如果 LLM 可用）
+        risk_level = self._assess_risk(overall_score, data)
+        recommendation = self._generate_recommendation(overall_score)
+        template_summary = self._generate_summary(fundamental, technical, capital_flow, overall_score)
+
+        if self._ai_enabled:
+            ai_result = await self._generate_ai_summary(
+                stock_code=stock_code,
+                stock_name=data.get('stock_name', stock_code),
+                quote=data.get('quote', {}),
+                fundamental=fundamental,
+                technical=technical,
+                capital_flow=capital_flow,
+                overall_score=overall_score,
+                risk_level=risk_level,
+                valuation_score=valuation_score,
+                news_score=news_score,
+            )
+            if ai_result:
+                template_summary = ai_result.get('summary', template_summary)
+                recommendation = ai_result.get('recommendation', recommendation)
+                risk_level = ai_result.get('risk_level', risk_level)
+
+        # 6. 生成报告
         report = AnalysisReport(
             stock_code=stock_code,
             stock_name=data.get('stock_name', stock_code),
@@ -119,10 +153,10 @@ class StockAnalyzer:
             capital_flow=capital_flow,
             industry_comparison=industry_comparison,
             overall_score=overall_score,
-            risk_level=self._assess_risk(overall_score, data),
-            recommendation=self._generate_recommendation(overall_score),
+            risk_level=risk_level,
+            recommendation=recommendation,
             confidence=confidence,
-            summary=self._generate_summary(fundamental, technical, capital_flow, overall_score),
+            summary=template_summary,
             generated_at=int(time.time())
         )
 
@@ -1231,6 +1265,90 @@ class StockAnalyzer:
                     risk = "high"
 
         return risk
+
+    async def _generate_ai_summary(
+        self,
+        stock_code: str,
+        stock_name: str,
+        quote: Dict,
+        fundamental: FundamentalAnalysis,
+        technical: TechnicalAnalysis,
+        capital_flow: CapitalFlowAnalysis,
+        overall_score: float,
+        risk_level: str,
+        valuation_score: float,
+        news_score: float,
+    ) -> Optional[Dict]:
+        """使用 LLM 生成 AI 智能分析摘要
+
+        将所有量化数据作为 context 发送给大模型，生成深度分析。
+        失败时返回 None，调用方回退到模板摘要。
+        """
+        if not self._llm:
+            return None
+
+        try:
+            price = quote.get('price', 0)
+            pct_change = quote.get('pct_change', 0)
+            market_cap = quote.get('market_cap', 0)
+            pe = quote.get('pe', 0)
+            pb = quote.get('pb', 0)
+            cap_yi = market_cap / 1e8 if market_cap else 0
+
+            context = (
+                f"股票：{stock_name}({stock_code}) 价格：{price}元 涨跌：{pct_change}%\n"
+                f"市值：{cap_yi:.1f}亿 PE：{pe} PB：{pb}\n"
+                f"综合评分：{overall_score}/10 基本面：{fundamental.score}/10 "
+                f"技术面：{technical.score}/10 资金面：{capital_flow.score}/10 "
+                f"估值：{valuation_score}/10 消息面：{news_score}/10\n"
+                f"基本面：{fundamental.summary}\n"
+                f"技术面({technical.trend})：{technical.summary}\n"
+                f"支撑位：{technical.support_levels} 压力位：{technical.resistance_levels}\n"
+                f"资金面：{capital_flow.summary}\n"
+                f"风险等级：{risk_level}"
+            )
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是专业A股证券分析师。根据量化数据生成简洁精准的分析报告。"
+                        "要求：1)涵盖基本面、技术面、资金面关键亮点和风险 "
+                        "2)明确操作建议和理由 3)给出参考目标价和止损价 "
+                        "4)不超过300字 5)末尾注明'以上分析仅供参考，不构成投资建议'\n"
+                        '以JSON返回：{"summary":"分析内容","recommendation":"buy|hold|watch|sell","risk_level":"low|medium|high"}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": context,
+                },
+            ]
+
+            result = await asyncio.wait_for(
+                self._llm.structured_output(messages),
+                timeout=30.0,
+            )
+
+            if isinstance(result, dict) and 'summary' in result:
+                rec = result.get('recommendation', '').lower()
+                if rec not in ('buy', 'hold', 'watch', 'sell'):
+                    result['recommendation'] = self._generate_recommendation(overall_score)
+                risk = result.get('risk_level', '').lower()
+                if risk not in ('low', 'medium', 'high'):
+                    result['risk_level'] = risk_level
+                logger.info(f"AI analysis generated for {stock_code}")
+                return result
+
+            logger.warning(f"AI returned unexpected format for {stock_code}: {result}")
+            return None
+
+        except asyncio.TimeoutError:
+            logger.warning(f"AI analysis timed out for {stock_code}")
+            return None
+        except Exception as e:
+            logger.warning(f"AI analysis failed for {stock_code}: {e}")
+            return None
 
     def _generate_recommendation(self, overall_score: float) -> str:
         """生成投资建议 (PRD 4.7.3)"""

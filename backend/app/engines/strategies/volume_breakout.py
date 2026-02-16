@@ -1,7 +1,8 @@
 # backend/app/engines/strategies/volume_breakout.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
 import numpy as np
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.utils.indicators import calculate_ma, calculate_boll
 
@@ -44,54 +45,45 @@ class VolumeBreakoutStrategy:
         if 'volume_ratio' in df.columns:
             df = df[df['volume_ratio'] >= 1.5]
 
-        results = []
         candidates = df.head(200).to_dict('records')
 
-        for stock in candidates:
-            try:
-                kline = await self.data_service.fetch_kline_data(
-                    stock['stock_code'], period='1d', days=consolidation_days + 30
-                )
-                if len(kline) < consolidation_days + 5:
-                    continue
+        # Fetch K-line and check breakout concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            kline = await self.data_service.fetch_kline_data(
+                stock['stock_code'], period='1d', days=consolidation_days + 30
+            )
+            if len(kline) < consolidation_days + 5:
+                return None
 
-                kdf = pd.DataFrame(kline)
-                closes = kdf['close']
-                highs = kdf['high']
-                lows = kdf['low']
-                volumes = kdf['volume']
+            kdf = pd.DataFrame(kline)
+            closes = kdf['close']
+            volumes = kdf['volume']
 
-                # Check consolidation: low amplitude in prior period
-                prior = kdf.iloc[-(consolidation_days + 1):-1]
-                prior_high = prior['high'].max()
-                prior_low = prior['low'].min()
-                if prior_low <= 0:
-                    continue
-                amplitude = (prior_high - prior_low) / prior_low * 100
-                if amplitude > max_amplitude:
-                    continue
+            prior = kdf.iloc[-(consolidation_days + 1):-1]
+            prior_high = prior['high'].max()
+            prior_low = prior['low'].min()
+            if prior_low <= 0:
+                return None
+            amplitude = (prior_high - prior_low) / prior_low * 100
+            if amplitude > max_amplitude:
+                return None
 
-                # Check price breakout above prior high
-                latest_close = closes.iloc[-1]
-                if latest_close <= prior_high:
-                    continue
+            latest_close = closes.iloc[-1]
+            if latest_close <= prior_high:
+                return None
 
-                # Check volume breakout
-                vol_avg = volumes.iloc[-(consolidation_days + 1):-1].mean()
-                latest_vol = volumes.iloc[-1]
-                if vol_avg <= 0 or latest_vol < vol_avg * volume_multiplier:
-                    continue
+            vol_avg = volumes.iloc[-(consolidation_days + 1):-1].mean()
+            latest_vol = volumes.iloc[-1]
+            if vol_avg <= 0 or latest_vol < vol_avg * volume_multiplier:
+                return None
 
-                # Calculate score
-                breakout_pct = (latest_close - prior_high) / prior_high * 100
-                vol_ratio = latest_vol / vol_avg
-                score = 50.0 + min(breakout_pct * 5, 25) + min(vol_ratio * 5, 25)
+            breakout_pct = (latest_close - prior_high) / prior_high * 100
+            vol_ratio = latest_vol / vol_avg
+            score = 50.0 + min(breakout_pct * 5, 25) + min(vol_ratio * 5, 25)
 
-                stock['score'] = round(min(score, 100), 1)
-                results.append(stock)
+            stock['score'] = round(min(score, 100), 1)
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates, _process)
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:50]

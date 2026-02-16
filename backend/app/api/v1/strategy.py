@@ -1,4 +1,5 @@
 # backend/app/api/v1/strategy.py
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict
 from sqlalchemy.orm import Session
@@ -90,7 +91,10 @@ async def execute_strategy(request: StrategyExecuteRequest):
                     include=request.include_industries,
                     exclude=request.exclude_industries,
                 )
-            results = await strategy.execute(params=request.params)
+            results = await asyncio.wait_for(
+                strategy.execute(params=request.params),
+                timeout=180.0,
+            )
         else:
             raise HTTPException(
                 status_code=400,
@@ -124,6 +128,9 @@ async def execute_strategy(request: StrategyExecuteRequest):
         return response_data
     except HTTPException:
         raise
+    except asyncio.TimeoutError:
+        logger.warning(f"Strategy {request.strategy_type} timed out after 90s")
+        raise HTTPException(status_code=504, detail="Strategy execution timed out. Please try again.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

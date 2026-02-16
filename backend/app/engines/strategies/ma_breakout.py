@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/ma_breakout.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.utils.indicators import calculate_ma, detect_ma_alignment, calculate_volume_ma
 
@@ -20,7 +21,6 @@ class MABreakoutStrategy:
 
     async def execute(self, params: Dict = None) -> List[Dict]:
         """Execute MA breakout strategy"""
-        # Parameters
         volume_ratio_min = params.get("volume_ratio_min", 1.5) if params else 1.5
         market_cap_min = params.get("market_cap_min", 5_000_000_000) if params else 5_000_000_000
 
@@ -41,41 +41,35 @@ class MABreakoutStrategy:
         if 'volume_ratio' in df.columns:
             df = df[df['volume_ratio'] >= volume_ratio_min]
 
-        # For each candidate, fetch K-line and check MA alignment
-        results = []
-        candidates = df.head(200).to_dict('records')  # Limit candidates for performance
+        candidates = df.head(200).to_dict('records')
 
-        for stock in candidates:
-            try:
-                kline = await self.data_service.fetch_kline_data(
-                    stock['stock_code'], period='1d', days=120
-                )
-                if len(kline) < 60:
-                    continue
+        # Fetch K-line and check MA alignment concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            kline = await self.data_service.fetch_kline_data(
+                stock['stock_code'], period='1d', days=120
+            )
+            if len(kline) < 60:
+                return None
 
-                kdf = pd.DataFrame(kline)
-                closes = kdf['close']
-                volumes = kdf['volume']
+            kdf = pd.DataFrame(kline)
+            closes = kdf['close']
+            volumes = kdf['volume']
 
-                # Check MA alignment
-                alignment = detect_ma_alignment(closes)
-                if not alignment['bullish']:
-                    continue
+            alignment = detect_ma_alignment(closes)
+            if not alignment['bullish']:
+                return None
 
-                # Check volume confirmation
-                vol_ma = calculate_volume_ma(volumes, [5])
-                if 'vol_ma5' in vol_ma:
-                    latest_vol = volumes.iloc[-1]
-                    avg_vol = vol_ma['vol_ma5'].iloc[-1]
-                    if latest_vol < avg_vol * 1.2:
-                        continue
+            vol_ma = calculate_volume_ma(volumes, [5])
+            if 'vol_ma5' in vol_ma:
+                latest_vol = volumes.iloc[-1]
+                avg_vol = vol_ma['vol_ma5'].iloc[-1]
+                if latest_vol < avg_vol * 1.2:
+                    return None
 
-                stock['score'] = self._calculate_score(alignment, kdf)
-                results.append(stock)
+            stock['score'] = self._calculate_score(alignment, kdf)
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates, _process)
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:50]
 

@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/earnings_surprise.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 
 
@@ -42,41 +43,35 @@ class EarningsSurpriseStrategy:
         df = df[pd.notna(df['pe'])]
         df = df[(df['pe'] > 0) & (df['pe'] < pe_max)]
 
-        results = []
-        candidates = df.head(500).to_dict('records')
+        candidates = df.head(200).to_dict('records')
 
-        for stock in candidates:
-            try:
-                financials = await self.data_service.fetch_financial_data(
-                    stock['stock_code'], years=2
-                )
-                if not financials or len(financials) < 2:
-                    continue
+        # Fetch financial data concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            financials = await self.data_service.fetch_financial_data(
+                stock['stock_code'], years=2
+            )
+            if not financials or len(financials) < 2:
+                return None
 
-                latest = financials[0]
-                net_profit_growth = latest.get('net_profit_growth', 0)
+            latest = financials[0]
+            net_profit_growth = latest.get('net_profit_growth', 0)
 
-                # Check earnings growth
-                if net_profit_growth < min_profit_growth:
-                    continue
+            if net_profit_growth < min_profit_growth:
+                return None
 
-                # Check revenue growth as confirmation
-                revenue_growth = latest.get('revenue_growth', 0)
+            revenue_growth = latest.get('revenue_growth', 0)
 
-                # Score: weighted by growth magnitude
-                score = 50.0
-                score += min(net_profit_growth * 0.5, 30)  # Up to 30 pts for profit growth
-                score += min(max(revenue_growth, 0) * 0.3, 10)  # Up to 10 pts for revenue
-                if stock.get('pe') and stock['pe'] < 20:
-                    score += 10  # Low PE bonus
+            score = 50.0
+            score += min(net_profit_growth * 0.5, 30)
+            score += min(max(revenue_growth, 0) * 0.3, 10)
+            if stock.get('pe') and stock['pe'] < 20:
+                score += 10
 
-                stock['score'] = round(min(score, 100), 1)
-                stock['net_profit_growth'] = net_profit_growth
-                stock['revenue_growth'] = revenue_growth
-                results.append(stock)
+            stock['score'] = round(min(score, 100), 1)
+            stock['net_profit_growth'] = net_profit_growth
+            stock['revenue_growth'] = revenue_growth
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates, _process)
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:50]

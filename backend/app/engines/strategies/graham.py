@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/graham.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.engines.stock_filter import StockFilter
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.schemas.strategy import FilterCondition, ConditionOperator
 
@@ -37,42 +38,34 @@ class GrahamStrategy:
         ]
         candidates = await self.filter_engine.apply_filter(conditions)
 
-        # Step 2: Validate financial quality for top candidates
-        results = []
-        for stock in candidates[:200]:
-            try:
-                financials = await self.data_service.fetch_financial_data(
-                    stock['stock_code'], years=3
-                )
-                if not financials or len(financials) < 4:
-                    continue
+        # Step 2: Validate financial quality concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            financials = await self.data_service.fetch_financial_data(
+                stock['stock_code'], years=3
+            )
+            if not financials or len(financials) < 4:
+                return None
 
-                latest = financials[0]
-                debt_ratio = latest.get('debt_ratio', 100)
-                current_ratio = latest.get('current_ratio', 0)
+            latest = financials[0]
+            debt_ratio = latest.get('debt_ratio', 100)
+            current_ratio = latest.get('current_ratio', 0)
 
-                # Debt ratio < 60%
-                if debt_ratio >= 60:
-                    continue
+            if debt_ratio >= 60:
+                return None
+            if current_ratio < 1.5:
+                return None
 
-                # Current ratio > 1.5 (relaxed from 2.0)
-                if current_ratio < 1.5:
-                    continue
+            pe = stock.get('pe', 15)
+            pb = stock.get('pb', 2)
+            score = 100 - (pe / pe_max * 30) - (pb / pb_max * 20) - (debt_ratio / 60 * 20)
+            score += min(current_ratio * 5, 15)
+            score = max(0, min(100, score))
 
-                # Score: lower PE + lower PB = better
-                pe = stock.get('pe', 15)
-                pb = stock.get('pb', 2)
-                score = 100 - (pe / pe_max * 30) - (pb / pb_max * 20) - (debt_ratio / 60 * 20)
-                score += min(current_ratio * 5, 15)
-                score = max(0, min(100, score))
+            stock['score'] = round(score, 1)
+            stock['debt_ratio'] = debt_ratio
+            stock['current_ratio'] = current_ratio
+            return stock
 
-                stock['score'] = round(score, 1)
-                stock['debt_ratio'] = debt_ratio
-                stock['current_ratio'] = current_ratio
-                results.append(stock)
-
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates[:200], _process)
         results.sort(key=lambda x: x.get("score", 0), reverse=True)
         return results[:50]

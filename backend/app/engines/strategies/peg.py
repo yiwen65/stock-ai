@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/peg.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.engines.stock_filter import StockFilter
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.schemas.strategy import FilterCondition, ConditionOperator
 
@@ -33,48 +34,41 @@ class PEGStrategy:
         ]
         candidates = await self.filter_engine.apply_filter(conditions)
 
-        # Step 2: Compute PEG with financial data
-        results = []
-        for stock in candidates[:300]:
-            try:
-                financials = await self.data_service.fetch_financial_data(
-                    stock['stock_code'], years=2
-                )
-                if not financials or len(financials) < 2:
-                    continue
+        # Step 2: Compute PEG concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            financials = await self.data_service.fetch_financial_data(
+                stock['stock_code'], years=2
+            )
+            if not financials or len(financials) < 2:
+                return None
 
-                latest = financials[0]
-                net_profit_growth = latest.get('net_profit_growth', 0)
-                roe = latest.get('roe', 0)
+            latest = financials[0]
+            net_profit_growth = latest.get('net_profit_growth', 0)
+            roe = latest.get('roe', 0)
 
-                # Must have positive growth above threshold
-                if net_profit_growth < growth_min:
-                    continue
-                if roe < 10:
-                    continue
+            if net_profit_growth < growth_min:
+                return None
+            if roe < 10:
+                return None
 
-                # Compute PEG
-                pe = stock.get('pe', 0)
-                if pe <= 0 or net_profit_growth <= 0:
-                    continue
-                peg = pe / net_profit_growth
-                if peg > peg_max:
-                    continue
+            pe = stock.get('pe', 0)
+            if pe <= 0 or net_profit_growth <= 0:
+                return None
+            peg = pe / net_profit_growth
+            if peg > peg_max:
+                return None
 
-                # Score: lower PEG = better
-                score = 50.0
-                score += max(0, (peg_max - peg) / peg_max * 25)  # PEG proximity
-                score += min(net_profit_growth / 50 * 15, 15)  # Growth bonus
-                score += min(roe / 20 * 10, 10)  # ROE bonus
+            score = 50.0
+            score += max(0, (peg_max - peg) / peg_max * 25)
+            score += min(net_profit_growth / 50 * 15, 15)
+            score += min(roe / 20 * 10, 10)
 
-                stock['score'] = round(min(score, 100), 1)
-                stock['peg'] = round(peg, 2)
-                stock['roe'] = roe
-                stock['net_profit_growth'] = net_profit_growth
-                results.append(stock)
+            stock['score'] = round(min(score, 100), 1)
+            stock['peg'] = round(peg, 2)
+            stock['roe'] = roe
+            stock['net_profit_growth'] = net_profit_growth
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates[:200], _process)
         results.sort(key=lambda x: x.get("peg", 999))
         return results[:50]

@@ -1,6 +1,7 @@
 # backend/app/engines/strategies/macd_divergence.py
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
+from app.engines.strategy_utils import batch_fetch
 from app.services.data_service import DataService
 from app.utils.indicators import calculate_macd, calculate_rsi
 
@@ -40,37 +41,32 @@ class MACDDivergenceStrategy:
         if 'change_60d' in df.columns:
             df = df[df['change_60d'] < 0]
 
-        results = []
-        candidates = df.head(300).to_dict('records')
+        candidates = df.head(200).to_dict('records')
 
-        for stock in candidates:
-            try:
-                kline = await self.data_service.fetch_kline_data(
-                    stock['stock_code'], period='1d', days=lookback_days + 60
-                )
-                if len(kline) < lookback_days:
-                    continue
+        # Fetch K-line and check divergence concurrently
+        async def _process(stock: Dict) -> Optional[Dict]:
+            kline = await self.data_service.fetch_kline_data(
+                stock['stock_code'], period='1d', days=lookback_days + 60
+            )
+            if len(kline) < lookback_days:
+                return None
 
-                kdf = pd.DataFrame(kline)
-                closes = kdf['close']
+            kdf = pd.DataFrame(kline)
+            closes = kdf['close']
 
-                # Check RSI oversold
-                rsi_data = calculate_rsi(closes, [14])
-                rsi14 = rsi_data['rsi14']
-                if rsi14.iloc[-1] > rsi_threshold:
-                    continue
+            rsi_data = calculate_rsi(closes, [14])
+            rsi14 = rsi_data['rsi14']
+            if rsi14.iloc[-1] > rsi_threshold:
+                return None
 
-                # Check MACD divergence
-                divergence = self._detect_bottom_divergence(closes, lookback_days)
-                if not divergence['detected']:
-                    continue
+            divergence = self._detect_bottom_divergence(closes, lookback_days)
+            if not divergence['detected']:
+                return None
 
-                stock['score'] = divergence['score']
-                results.append(stock)
+            stock['score'] = divergence['score']
+            return stock
 
-            except Exception:
-                continue
-
+        results = await batch_fetch(candidates, _process)
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:50]
 
@@ -104,7 +100,6 @@ class MACDDivergenceStrategy:
         dif_higher = recent_dif.iloc[idx2] > recent_dif.iloc[idx1]
 
         if price_lower and dif_higher:
-            # Score based on divergence strength
             price_drop = (recent_closes.iloc[idx1] - recent_closes.iloc[idx2]) / recent_closes.iloc[idx1]
             dif_rise = recent_dif.iloc[idx2] - recent_dif.iloc[idx1]
             score = 50.0 + min(price_drop * 200, 25) + min(abs(dif_rise) * 10, 25)
